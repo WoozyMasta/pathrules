@@ -94,6 +94,52 @@ func TestMatcherAnchoredPattern(t *testing.T) {
 	}
 }
 
+func TestMatcherAnchoredComponentPattern(t *testing.T) {
+	t.Parallel()
+
+	rules := []Rule{
+		{Action: ActionExclude, Pattern: "/root.txt"},
+	}
+
+	m, err := NewMatcher(rules, MatcherOptions{
+		DefaultAction: ActionInclude,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Excluded("root.txt", false) {
+		t.Fatalf("root.txt must be excluded")
+	}
+
+	if m.Excluded("dir/root.txt", false) {
+		t.Fatalf("dir/root.txt must not match anchored component pattern")
+	}
+}
+
+func TestMatcherAnchoredDirOnlyComponentPattern(t *testing.T) {
+	t.Parallel()
+
+	rules := []Rule{
+		{Action: ActionExclude, Pattern: "/build/"},
+	}
+
+	m, err := NewMatcher(rules, MatcherOptions{
+		DefaultAction: ActionInclude,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Excluded("build/a.txt", false) {
+		t.Fatalf("build/a.txt must be excluded")
+	}
+
+	if m.Excluded("src/build/a.txt", false) {
+		t.Fatalf("src/build/a.txt must not match anchored dir-only component pattern")
+	}
+}
+
 func TestMatcherCharClass(t *testing.T) {
 	t.Parallel()
 

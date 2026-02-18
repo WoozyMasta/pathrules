@@ -46,7 +46,8 @@ type segmentPattern struct {
 	wildcard bool
 }
 
-// compileRule compiles one source rule to regexp-backed structure.
+// compileRule compiles one source rule into the cheapest matching strategy
+// that preserves expected gitignore-like semantics.
 func compileRule(rule Rule, caseInsensitive bool) (*compiledRule, error) {
 	if !rule.Action.valid() {
 		return nil, fmt.Errorf("%w: unsupported action %d", ErrInvalidRule, rule.Action)
@@ -74,11 +75,14 @@ func compileRule(rule Rule, caseInsensitive bool) (*compiledRule, error) {
 		return nil, fmt.Errorf("%w: empty after normalization (%q)", ErrInvalidPattern, rule.Pattern)
 	}
 
-	cr.hasSlash = strings.Contains(pattern, "/")
+	// Anchored patterns ("/name") must be matched against full path from root
+	// even when they do not contain an explicit slash after normalization.
+	cr.hasSlash = strings.Contains(pattern, "/") || cr.anchored
 	hasMeta := patternHasGlobMeta(pattern)
 	hasCharClass := patternHasCharClass(pattern)
 
 	if !cr.hasSlash {
+		// Component-only rules can avoid regexp completely for exact and simple wildcard cases.
 		if !hasMeta {
 			cr.componentExact = pattern
 			return cr, nil
@@ -98,12 +102,14 @@ func compileRule(rule Rule, caseInsensitive bool) (*compiledRule, error) {
 		return cr, nil
 	}
 
+	// Path rules get similar fast paths first: exact match, then segmented wildcard matching.
 	if !hasMeta {
 		cr.pathExact = pattern
 		return cr, nil
 	}
 
 	if prefix, ok := strings.CutSuffix(pattern, "/**"); ok {
+		// Trailing "/**" is common and can be matched as "prefix directory + any descendants".
 		if prefix != "" && canUseSimplePathSegments(prefix) {
 			cr.pathPrefixSegments = compilePathSegments(prefix)
 			return cr, nil
@@ -115,6 +121,7 @@ func compileRule(rule Rule, caseInsensitive bool) (*compiledRule, error) {
 		return cr, nil
 	}
 
+	// Fallback for patterns with char classes or complex "**" combinations.
 	body := globToRegexPath(pattern)
 	prefix := `(?:^|.*/)`
 	if cr.anchored {
@@ -147,6 +154,7 @@ func (r *compiledRule) matches(candidate string, isDir bool) bool {
 	}
 
 	if r.hasSlash {
+		// Path strategy priority mirrors compile-time selection: exact -> fast segmented -> regexp.
 		if r.pathExact != "" {
 			return matchExactPathRule(r.pathExact, candidate, isDir, r.anchored, r.dirOnly)
 		}
@@ -166,6 +174,7 @@ func (r *compiledRule) matches(candidate string, isDir bool) bool {
 		return r.pathRE != nil && r.pathRE.MatchString(candidate)
 	}
 
+	// Component strategy priority mirrors compile-time selection too.
 	if r.componentExact != "" {
 		if !r.dirOnly {
 			return pathBase(candidate) == r.componentExact
@@ -286,6 +295,7 @@ func matchSimpleWildcard(pattern string, input string) bool {
 		}
 
 		if pIdx < len(pattern) && pattern[pIdx] == '*' {
+			// Remember star position and continue greedily from current input index.
 			starPattern = pIdx
 			pIdx++
 			starInput = sIdx
@@ -293,6 +303,8 @@ func matchSimpleWildcard(pattern string, input string) bool {
 		}
 
 		if starPattern >= 0 {
+			// Mismatch after a previous star: backtrack pattern to token after '*'
+			// and let '*' consume one more input byte.
 			pIdx = starPattern + 1
 			starInput++
 			sIdx = starInput
@@ -350,6 +362,7 @@ func matchPathSegmentsUnanchored(pattern []segmentPattern, candidate string, dir
 			return false
 		}
 
+		// Shift to next segment boundary and retry, emulating "(^|.*/)" prefix.
 		start += nextSlash + 1
 	}
 }
@@ -377,6 +390,8 @@ func matchPathSegmentsAt(pattern []segmentPattern, candidate string, start int) 
 
 		index = end
 		if seg == len(pattern)-1 {
+			// Return end position to let caller validate terminal constraints
+			// (full match vs directory-subtree match).
 			return index, true
 		}
 
@@ -398,6 +413,7 @@ func matchPathPrefixDoubleStar(prefix []segmentPattern, candidate string, anchor
 
 	if anchored {
 		end, ok := matchPathSegmentsAt(prefix, candidate, 0)
+		// "/prefix/**" should match descendants only; exact directory alone does not match.
 		return ok && end < len(candidate) && candidate[end] == '/'
 	}
 
