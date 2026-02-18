@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.1.1][] - 2026-02-18
+
+### Fixed
+
+* Anchored component patterns now match root-relative paths correctly:
+  `/root.txt` matches `root.txt` and `/root.txt` does not match `dir/root.txt`
+
+[0.1.1]: https://github.com/WoozyMasta/pathrules/v0.1.1
+
 ## [0.1.0][] - 2026-02-18
 
 ### Added
