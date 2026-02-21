@@ -62,3 +62,18 @@ Provider hardening:
 
 For one-directory batch checks, use `DecideInDir` / `IncludedInDir` and pass
 entry names (`DirEntry`) instead of calling `Decide` per file.
+
+## Extensions Helper
+
+For workflows that configure only file extensions:
+
+```go
+exts := []string{"rvmat", ".paa", "*.ogg"}
+
+rules := pathrules.ParseExtensions(exts)
+// []Rule{
+//   {Action: ActionInclude, Pattern: "*.rvmat"},
+//   {Action: ActionInclude, Pattern: "*.paa"},
+//   {Action: ActionInclude, Pattern: "*.ogg"},
+// }
+```

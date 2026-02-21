@@ -11,6 +11,7 @@ compression selection, conversion selection, and other path-based pipelines.
 Basic flow:
   - parse rules from text (`ParseRules`)
   - optionally load rules from file (`LoadRulesFile`)
+  - optionally build extension-based include rules (`ParseExtensions`)
   - compile matcher (`NewMatcher`)
   - ask for decision (`Decide` / `Included` / `Excluded`)
 
