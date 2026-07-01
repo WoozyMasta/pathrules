@@ -24,7 +24,7 @@ func NewMatcher(rules []Rule, opts MatcherOptions) (*Matcher, error) {
 			return nil, err
 		}
 
-		compiled = append(compiled, *cr)
+		compiled = append(compiled, cr)
 	}
 
 	return &Matcher{

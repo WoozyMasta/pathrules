@@ -48,9 +48,9 @@ type segmentPattern struct {
 
 // compileRule compiles one source rule into the cheapest matching strategy
 // that preserves expected gitignore-like semantics.
-func compileRule(rule Rule, caseInsensitive bool) (*compiledRule, error) {
+func compileRule(rule Rule, caseInsensitive bool) (compiledRule, error) {
 	if !rule.Action.valid() {
-		return nil, fmt.Errorf("%w: unsupported action %d", ErrInvalidRule, rule.Action)
+		return compiledRule{}, fmt.Errorf("%w: unsupported action %d", ErrInvalidRule, rule.Action)
 	}
 
 	pattern := normalizePattern(rule.Pattern)
@@ -59,10 +59,10 @@ func compileRule(rule Rule, caseInsensitive bool) (*compiledRule, error) {
 	}
 
 	if pattern == "" {
-		return nil, fmt.Errorf("%w: empty", ErrInvalidPattern)
+		return compiledRule{}, fmt.Errorf("%w: empty", ErrInvalidPattern)
 	}
 
-	cr := &compiledRule{
+	cr := compiledRule{
 		source:   rule,
 		anchored: strings.HasPrefix(pattern, "/"),
 		dirOnly:  strings.HasSuffix(pattern, "/"),
@@ -72,7 +72,7 @@ func compileRule(rule Rule, caseInsensitive bool) (*compiledRule, error) {
 	pattern = strings.TrimSuffix(pattern, "/")
 	pattern = strings.Trim(pattern, "/")
 	if pattern == "" {
-		return nil, fmt.Errorf("%w: empty after normalization (%q)", ErrInvalidPattern, rule.Pattern)
+		return compiledRule{}, fmt.Errorf("%w: empty after normalization (%q)", ErrInvalidPattern, rule.Pattern)
 	}
 
 	// Anchored patterns ("/name") must be matched against full path from root
@@ -95,7 +95,7 @@ func compileRule(rule Rule, caseInsensitive bool) (*compiledRule, error) {
 
 		re, err := regexp.Compile("^" + globToRegexComponent(pattern) + "$")
 		if err != nil {
-			return nil, fmt.Errorf("%w: compile component %q: %v", ErrInvalidPattern, rule.Pattern, err)
+			return compiledRule{}, fmt.Errorf("%w: compile component %q: %v", ErrInvalidPattern, rule.Pattern, err)
 		}
 
 		cr.componentRE = re
@@ -131,7 +131,7 @@ func compileRule(rule Rule, caseInsensitive bool) (*compiledRule, error) {
 	if cr.dirOnly {
 		re, err := regexp.Compile(prefix + body + `(?:/.*)?$`)
 		if err != nil {
-			return nil, fmt.Errorf("%w: compile dir pattern %q: %v", ErrInvalidPattern, rule.Pattern, err)
+			return compiledRule{}, fmt.Errorf("%w: compile dir pattern %q: %v", ErrInvalidPattern, rule.Pattern, err)
 		}
 
 		cr.pathDirRE = re
@@ -140,7 +140,7 @@ func compileRule(rule Rule, caseInsensitive bool) (*compiledRule, error) {
 
 	re, err := regexp.Compile(prefix + body + `$`)
 	if err != nil {
-		return nil, fmt.Errorf("%w: compile path pattern %q: %v", ErrInvalidPattern, rule.Pattern, err)
+		return compiledRule{}, fmt.Errorf("%w: compile path pattern %q: %v", ErrInvalidPattern, rule.Pattern, err)
 	}
 
 	cr.pathRE = re
