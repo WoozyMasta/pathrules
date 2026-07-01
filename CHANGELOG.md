@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD024 -->
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -12,6 +13,23 @@ and this project adheres to [Semantic Versioning][].
 ### Changed
 ### Removed
 -->
+
+## Unreleased
+
+### Changed
+
+* `Matcher.Decide` scans compiled rules from the end
+  and stops at the first match instead of always scanning all rules,
+  since last-match-wins semantics guarantee the first hit found
+  in reverse is already the answer: ~24% faster
+  in the `MatcherDecide` benchmark, up to ~23% faster.
+* Reduced allocations when compiling rules: `NewMatcher` and `NewProvider`
+  (for non-empty `BaseRules`) allocate ~6-11% less,
+  and `NewProvider` no longer allocates when `BaseRules` is empty.
+
+### Added
+
+* Fuzz tests and expanded benchmark and test coverage.
 
 ## [0.1.2][] - 2026-02-21
 
