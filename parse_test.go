@@ -4,19 +4,28 @@
 
 package pathrules
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseRules(t *testing.T) {
 	t.Parallel()
 
-	rules, err := ParseRulesString(`
-# comment
-*.tmp
-!keep.tmp
-\#literal
-\!bang
-name\ 
-`)
+	// Built via explicit "\n"-joined lines rather than a raw string literal:
+	// the trailing "\ " escape on the last line is significant test input,
+	// and editors/formatters that trim trailing whitespace on save
+	// would silently strip it from a raw string literal's source line.
+	rules, err := ParseRulesString(strings.Join([]string{
+		"",
+		"# comment",
+		"*.tmp",
+		"!keep.tmp",
+		`\#literal`,
+		`\!bang`,
+		`name\ `,
+		"",
+	}, "\n"))
 	if err != nil {
 		t.Fatalf("ParseRulesString: %v", err)
 	}
@@ -43,5 +52,19 @@ name\
 
 	if rules[4].Action != ActionExclude || rules[4].Pattern != "name " {
 		t.Fatalf("rule[4]=%+v", rules[4])
+	}
+}
+
+func TestParseRulesRejectsOverlongLine(t *testing.T) {
+	t.Parallel()
+
+	// bufio.Scanner's default max token size is 64KiB;
+	// a single line (no newline) past that must surface as a normal error,
+	// not a panic, and must not silently truncate the input.
+	src := strings.Repeat("a", 128*1024)
+
+	_, err := ParseRulesString(src)
+	if err == nil {
+		t.Fatalf("ParseRulesString(overlong line): want error, got nil")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -215,6 +216,8 @@ func TestProviderRejectsTraversalPaths(t *testing.T) {
 		"../a.txt",
 		"/etc/passwd",
 		"a/../b.txt",
+		".",
+		"..",
 	}
 
 	for _, path := range cases {
@@ -222,6 +225,26 @@ func TestProviderRejectsTraversalPaths(t *testing.T) {
 		if !errors.Is(err, ErrPathOutsideRoot) {
 			t.Fatalf("Decide(%q) err=%v, want ErrPathOutsideRoot", path, err)
 		}
+	}
+}
+
+// TestProviderRejectsWindowsAbsolutePath covers Windows drive-letter absolute paths,
+// which filepath.IsAbs (and therefore cleanRelPath)
+// only recognizes as absolute on windows GOOS builds.
+func TestProviderRejectsWindowsAbsolutePath(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS != "windows" {
+		t.Skip("filepath.IsAbs only treats drive-letter paths as absolute on windows")
+	}
+
+	p, err := NewProvider(t.TempDir(), ProviderOptions{})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	if _, err := p.Decide(`C:\Windows\System32\config`, false); !errors.Is(err, ErrPathOutsideRoot) {
+		t.Fatalf(`Decide(C:\Windows\System32\config) err=%v, want ErrPathOutsideRoot`, err)
 	}
 }
 

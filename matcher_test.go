@@ -4,7 +4,10 @@
 
 package pathrules
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMatcherIgnoreMode(t *testing.T) {
 	t.Parallel()
@@ -176,6 +179,91 @@ func TestMatcherCaseInsensitive(t *testing.T) {
 
 	if !m.Excluded(`src\MAIN.cpp`, false) {
 		t.Fatalf("src\\MAIN.cpp must be excluded in case-insensitive mode")
+	}
+}
+
+func TestMatcherDecideNormalizesEdgeCasePaths(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionExclude, Pattern: "etc/passwd"},
+	}, MatcherOptions{
+		DefaultAction: ActionInclude,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	// Matcher.Decide has no error return:
+	// it normalizes whatever it is given and never panics.
+	// Path-safety validation is Provider's job, not Matcher's.
+	//
+	// "/etc/passwd", the Windows-separated form, and "./etc/passwd"
+	// all normalize to the candidate "etc/passwd" and hit the exclude rule.
+	matchCases := []string{"/etc/passwd", `\etc\passwd`, "./etc/passwd"}
+	for _, path := range matchCases {
+		if !m.Excluded(path, false) {
+			t.Fatalf("Excluded(%q)=false, want true (normalizes to etc/passwd)", path)
+		}
+	}
+
+	// "", ".", and ".." all normalize to an empty candidate,
+	// which never matches any rule, so the default action (Include) applies.
+	emptyCases := []string{"", ".", ".."}
+	for _, path := range emptyCases {
+		if m.Excluded(path, false) {
+			t.Fatalf("Excluded(%q)=true, want false (normalizes to empty candidate)", path)
+		}
+	}
+}
+
+func TestMatcherDecideHandlesInvalidUTF8Path(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionExclude, Pattern: "*.tmp"},
+	}, MatcherOptions{
+		DefaultAction: ActionInclude,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	invalid := string([]byte{0xff, 0xfe, '/', 0x80, 0x81, '.', 't', 'm', 'p'})
+
+	// Matching is byte-oriented (no rune decoding),
+	// so invalid UTF-8 must neither panic nor be silently dropped: it still matches "*.tmp".
+	if !m.Excluded(invalid, false) {
+		t.Fatalf("Excluded(invalid UTF-8 path)=false, want true")
+	}
+}
+
+func TestMatcherDecideHandlesVeryLongPatternAndPath(t *testing.T) {
+	t.Parallel()
+
+	longName := strings.Repeat("a", 20000) + ".bin"
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionExclude, Pattern: longName},
+	}, MatcherOptions{
+		DefaultAction: ActionInclude,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Excluded(longName, false) {
+		t.Fatalf("Excluded(longName)=false, want true")
+	}
+
+	almostSame := strings.Repeat("a", 19999) + "b.bin"
+	if m.Excluded(almostSame, false) {
+		t.Fatalf("Excluded(almostSame)=true, want false")
+	}
+
+	veryLongUnrelatedPath := strings.Repeat("dir/", 5000) + "file.txt"
+	if m.Excluded(veryLongUnrelatedPath, false) {
+		t.Fatalf("Excluded(veryLongUnrelatedPath)=true, want false")
 	}
 }
 
