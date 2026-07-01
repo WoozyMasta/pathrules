@@ -4,6 +4,8 @@
 
 package pathrules
 
+import "slices"
+
 // Matcher evaluates path decisions against compiled ordered rules.
 type Matcher struct {
 	compiled        []compiledRule
@@ -49,14 +51,17 @@ func (m *Matcher) Decide(path string, isDir bool) MatchResult {
 		RuleIndex: -1,
 	}
 
-	for i := range m.compiled {
-		if !m.compiled[i].matches(candidate, isDir) {
+	// Scan backward: the first hit found this way is the highest-index match,
+	// i.e. the last-match-wins winner, so it is safe to stop immediately.
+	for i, v := range slices.Backward(m.compiled) {
+		if !v.matches(candidate, isDir) {
 			continue
 		}
 
 		res.Matched = true
 		res.RuleIndex = i
-		res.Included = m.compiled[i].source.Action == ActionInclude
+		res.Included = v.source.Action == ActionInclude
+		break
 	}
 
 	return res

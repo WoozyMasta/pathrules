@@ -193,6 +193,34 @@ func TestMatcherDefaultActionFallback(t *testing.T) {
 	}
 }
 
+func TestMatcherDecideRuleIndexIsLastMatch(t *testing.T) {
+	t.Parallel()
+
+	rules := []Rule{
+		{Action: ActionExclude, Pattern: "*.tmp"},
+		{Action: ActionInclude, Pattern: "*.tmp"},
+		{Action: ActionExclude, Pattern: "keep.tmp"},
+		{Action: ActionInclude, Pattern: "keep.tmp"},
+	}
+
+	m, err := NewMatcher(rules, MatcherOptions{
+		DefaultAction: ActionExclude,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	got := m.Decide("keep.tmp", false)
+	if !got.Matched || got.RuleIndex != 3 || !got.Included {
+		t.Fatalf("expected last matching rule (index 3, included) to win, got %+v", got)
+	}
+
+	got = m.Decide("other.tmp", false)
+	if !got.Matched || got.RuleIndex != 1 || !got.Included {
+		t.Fatalf("expected rule index 1 (include) to win over rule 0, got %+v", got)
+	}
+}
+
 func TestMatcherTrailingDoubleStar(t *testing.T) {
 	t.Parallel()
 
