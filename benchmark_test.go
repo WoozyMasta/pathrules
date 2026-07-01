@@ -86,6 +86,70 @@ func BenchmarkMatcherDecide(b *testing.B) {
 	}
 }
 
+func BenchmarkNewMatcherRuleStyles(b *testing.B) {
+	const styleRuleCount = 100
+
+	variants := []struct {
+		name  string
+		rules []Rule
+	}{
+		{"exact", buildExactRules(styleRuleCount)},
+		{"glob", buildGlobRules(styleRuleCount)},
+		{"regexp_heavy", buildRegexpHeavyRules(styleRuleCount)},
+		{"extension_list", ParseExtensions(buildExtensionNames(styleRuleCount))},
+	}
+
+	for _, v := range variants {
+		b.Run(v.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				m, err := NewMatcher(v.rules, MatcherOptions{
+					DefaultAction: ActionInclude,
+				})
+				if err != nil {
+					b.Fatal(err)
+				}
+
+				if m == nil {
+					b.Fatal("nil matcher")
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkMatcherDecideByPosition(b *testing.B) {
+	scenarios := []struct {
+		name string
+		path string
+	}{
+		{"match_first", "match_first.bin"},
+		{"match_middle", "match_middle.bin"},
+		{"match_last", "match_last.bin"},
+		{"no_match", "no_match.bin"},
+	}
+
+	for _, ruleCount := range []int{10, 100, 1000} {
+		m, err := NewMatcher(buildPositionalDecideRules(ruleCount), MatcherOptions{
+			DefaultAction: ActionInclude,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		for _, sc := range scenarios {
+			b.Run(fmt.Sprintf("rules_%d/%s", ruleCount, sc.name), func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					benchDecisionSink = m.Decide(sc.path, false)
+				}
+			})
+		}
+	}
+}
+
 func BenchmarkProviderDecideCached(b *testing.B) {
 	root := b.TempDir()
 	prepareProviderBenchTree(b, root)
@@ -220,6 +284,105 @@ func BenchmarkProviderDecideInDirLoop(b *testing.B) {
 	}
 }
 
+// BenchmarkProviderDecideDeepChain measures Decide cost
+// for a path buried under a chain of nested directories that each carry their own rules file,
+// like a large tree of layered .gitignore-style files.
+// Roughly half the levels contribute a rule that actually matches on the way down,
+// so the final decision is a genuine cumulative merge across the chain
+// rather than only the deepest file mattering.
+func BenchmarkProviderDecideDeepChain(b *testing.B) {
+	for _, depth := range []int{8, 16, 32} {
+		b.Run(fmt.Sprintf("depth_%d", depth), func(b *testing.B) {
+			root := b.TempDir()
+			leafRelDir, leafName := buildDeepChainTree(b, root, depth)
+			leafRel := leafRelDir + "/" + leafName
+
+			p, err := NewProvider(root, ProviderOptions{
+				MatcherOptions: MatcherOptions{
+					DefaultAction: ActionInclude,
+				},
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+
+			// Warm directory matcher cache before timed loops.
+			if _, err := p.Decide(leafRel, false); err != nil {
+				b.Fatal(err)
+			}
+
+			b.Run("Decide", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					res, err := p.Decide(leafRel, false)
+					if err != nil {
+						b.Fatal(err)
+					}
+
+					benchDecisionSink = res
+				}
+			})
+
+			b.Run("DecideInDir", func(b *testing.B) {
+				entries := []DirEntry{{Name: leafName}}
+
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					results, err := p.DecideInDir(leafRelDir, entries)
+					if err != nil {
+						b.Fatal(err)
+					}
+
+					benchDecisionSink = results[0]
+				}
+			})
+		})
+	}
+}
+
+// buildDeepChainTree creates a chain of depth nested directories,
+// each with its own rules file, and returns the leaf's relative directory and file name.
+// Even levels contribute a filler exclude rule that never matches the leaf;
+// odd levels contribute a filler include rule;
+// the deepest level also excludes the leaf file itself so the final decision depends
+// on that last directory's rules file being reached and merged with its ancestors.
+func buildDeepChainTree(b *testing.B, root string, depth int) (relDir string, leafName string) {
+	b.Helper()
+
+	const leaf = "leaf.bin"
+
+	dir := root
+	names := make([]string, 0, depth)
+	for i := 0; i < depth; i++ {
+		name := fmt.Sprintf("lvl%03d", i)
+		names = append(names, name)
+		dir = filepath.Join(dir, name)
+
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			b.Fatal(err)
+		}
+
+		var rules string
+		if i%2 == 0 {
+			rules = fmt.Sprintf("*.tmp_%03d\n", i)
+		} else {
+			rules = fmt.Sprintf("!keep_%03d.bin\n*.bak_%03d\n", i, i)
+		}
+
+		if i == depth-1 {
+			rules += leaf + "\n"
+		}
+
+		if err := os.WriteFile(filepath.Join(dir, defaultRulesFileName), []byte(rules), 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	return strings.Join(names, "/"), leaf
+}
+
 func BenchmarkNewProviderBaseRules(b *testing.B) {
 	root := b.TempDir()
 	prepareProviderBenchTree(b, root)
@@ -267,6 +430,63 @@ func BenchmarkNewProviderBaseRules(b *testing.B) {
 			}
 		}
 	})
+}
+
+func buildExactRules(ruleCount int) []Rule {
+	rules := make([]Rule, ruleCount)
+	for i := range rules {
+		rules[i] = Rule{Action: ActionExclude, Pattern: fmt.Sprintf("path/to/file_%04d.bin", i)}
+	}
+
+	return rules
+}
+
+func buildGlobRules(ruleCount int) []Rule {
+	rules := make([]Rule, ruleCount)
+	for i := range rules {
+		rules[i] = Rule{Action: ActionExclude, Pattern: fmt.Sprintf("assets/group_%03d/*.paa", i%37)}
+	}
+
+	return rules
+}
+
+func buildRegexpHeavyRules(ruleCount int) []Rule {
+	rules := make([]Rule, ruleCount)
+	for i := range rules {
+		if i%2 == 0 {
+			rules[i] = Rule{Action: ActionExclude, Pattern: fmt.Sprintf("data/file_%03d_[0-9].bin", i%53)}
+		} else {
+			rules[i] = Rule{Action: ActionInclude, Pattern: fmt.Sprintf("assets/**/group_%03d/*.paa", i%29)}
+		}
+	}
+
+	return rules
+}
+
+func buildExtensionNames(count int) []string {
+	exts := make([]string, count)
+	for i := range exts {
+		exts[i] = fmt.Sprintf("ext%03d", i)
+	}
+
+	return exts
+}
+
+// buildPositionalDecideRules builds ruleCount exact-match filler rules
+// plus three distinct target rules at the first, middle, and last index,
+// so Decide benchmarks can isolate the cost of matching near either end
+// of the compiled rule slice.
+func buildPositionalDecideRules(ruleCount int) []Rule {
+	rules := make([]Rule, ruleCount)
+	for i := range rules {
+		rules[i] = Rule{Action: ActionExclude, Pattern: fmt.Sprintf("filler_%04d.bin", i)}
+	}
+
+	rules[0] = Rule{Action: ActionExclude, Pattern: "match_first.bin"}
+	rules[ruleCount/2] = Rule{Action: ActionExclude, Pattern: "match_middle.bin"}
+	rules[ruleCount-1] = Rule{Action: ActionExclude, Pattern: "match_last.bin"}
+
+	return rules
 }
 
 func buildBenchmarkRulesSource(ruleCount int) string {
