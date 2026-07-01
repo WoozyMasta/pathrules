@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning][].
 * Reduced allocations when compiling rules: `NewMatcher` and `NewProvider`
   (for non-empty `BaseRules`) allocate ~6-11% less,
   and `NewProvider` no longer allocates when `BaseRules` is empty.
+* `Provider` skips redundant path re-normalization internally:
+  up to ~69% faster on deep directory chains, ~15-28% faster elsewhere.
 
 ### Added
 
