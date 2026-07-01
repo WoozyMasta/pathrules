@@ -40,7 +40,15 @@ func NewMatcher(rules []Rule, opts MatcherOptions) (*Matcher, error) {
 // - last matched rule wins
 // - if no rule matched, default action is used
 func (m *Matcher) Decide(path string, isDir bool) MatchResult {
-	candidate := normalizePath(path)
+	return m.decideNormalized(normalizePath(path), isDir)
+}
+
+// decideNormalized evaluates a candidate that the caller guarantees is already in normalizePath's
+// normal form (e.g. Provider trims a known-clean prefix off an already-normalized path per ancestor directory).
+// Skipping re-normalization here matters:
+// profiling showed normalizePath accounting for roughly a third of CPU time in Provider.DecideInDir,
+// since every per-directory matcher call was re-normalizing an already-clean candidate.
+func (m *Matcher) decideNormalized(candidate string, isDir bool) MatchResult {
 	if m.caseInsensitive {
 		candidate = asciiLower(candidate)
 	}

@@ -146,7 +146,7 @@ func (p *Provider) Decide(relPath string, isDir bool) (MatchResult, error) {
 	}
 
 	if p.baseMatcher != nil {
-		baseRes := p.baseMatcher.Decide(normalized, isDir)
+		baseRes := p.baseMatcher.decideNormalized(normalized, isDir)
 		if baseRes.Matched {
 			res = baseRes
 		}
@@ -213,7 +213,7 @@ func (p *Provider) DecideInDir(relDir string, entries []DirEntry) ([]MatchResult
 		}
 
 		if p.baseMatcher != nil {
-			baseRes := p.baseMatcher.Decide(fullPath, entries[i].IsDir)
+			baseRes := p.baseMatcher.decideNormalized(fullPath, entries[i].IsDir)
 			if baseRes.Matched {
 				res = baseRes
 			}
@@ -470,7 +470,7 @@ func (p *Provider) applyDirMatcherDecision(rel string, normalized string, isDir 
 		candidate = candidate[len(prefix):]
 	}
 
-	decision := matcher.Decide(candidate, isDir)
+	decision := matcher.decideNormalized(candidate, isDir)
 	if !decision.Matched {
 		return nil
 	}
@@ -505,7 +505,7 @@ func (p *Provider) applyPreparedDirMatchers(
 			candidate = candidate[len(prefix):]
 		}
 
-		decision := matchers[i].matcher.Decide(candidate, isDir)
+		decision := matchers[i].matcher.decideNormalized(candidate, isDir)
 		if !decision.Matched {
 			continue
 		}
