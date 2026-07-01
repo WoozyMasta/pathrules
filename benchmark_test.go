@@ -220,6 +220,55 @@ func BenchmarkProviderDecideInDirLoop(b *testing.B) {
 	}
 }
 
+func BenchmarkNewProviderBaseRules(b *testing.B) {
+	root := b.TempDir()
+	prepareProviderBenchTree(b, root)
+
+	b.Run("empty", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			p, err := NewProvider(root, ProviderOptions{
+				RulesFileName: ".pboignore",
+				MatcherOptions: MatcherOptions{
+					DefaultAction: ActionInclude,
+				},
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if p == nil {
+				b.Fatal("nil provider")
+			}
+		}
+	})
+
+	b.Run("non_empty", func(b *testing.B) {
+		baseRules := []Rule{
+			{Action: ActionInclude, Pattern: "*.paa"},
+			{Action: ActionExclude, Pattern: "*.tmp"},
+		}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			p, err := NewProvider(root, ProviderOptions{
+				RulesFileName: ".pboignore",
+				BaseRules:     baseRules,
+				MatcherOptions: MatcherOptions{
+					DefaultAction: ActionInclude,
+				},
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if p == nil {
+				b.Fatal("nil provider")
+			}
+		}
+	})
+}
+
 func buildBenchmarkRulesSource(ruleCount int) string {
 	var sb strings.Builder
 	sb.Grow(ruleCount * 18)

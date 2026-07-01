@@ -76,6 +76,40 @@ func TestProviderMixesBaseAndFileRules(t *testing.T) {
 	}
 }
 
+func TestProviderWithoutBaseRules(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRulesFile(t, filepath.Join(root, ".rules"), "*.tmp\n")
+
+	p, err := NewProvider(root, ProviderOptions{
+		RulesFileName: ".rules",
+		MatcherOptions: MatcherOptions{
+			DefaultAction: ActionInclude,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	if included, err := p.Included("a.tmp", false); err != nil || included {
+		t.Fatalf("Included(a.tmp)=%v err=%v, want excluded", included, err)
+	}
+
+	if included, err := p.Included("a.txt", false); err != nil || !included {
+		t.Fatalf("Included(a.txt)=%v err=%v, want included", included, err)
+	}
+
+	results, err := p.DecideInDir("", []DirEntry{{Name: "a.tmp"}, {Name: "a.txt"}})
+	if err != nil {
+		t.Fatalf("DecideInDir: %v", err)
+	}
+
+	if results[0].Included || !results[1].Included {
+		t.Fatalf("unexpected DecideInDir results without base rules: %+v", results)
+	}
+}
+
 func TestProviderRejectsTraversalPaths(t *testing.T) {
 	t.Parallel()
 

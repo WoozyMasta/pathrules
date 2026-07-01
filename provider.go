@@ -98,9 +98,12 @@ func NewProvider(rootDir string, opts ProviderOptions) (*Provider, error) {
 
 	opts.MatcherOptions.applyDefaults()
 
-	baseMatcher, err := NewMatcher(opts.BaseRules, opts.MatcherOptions)
-	if err != nil {
-		return nil, fmt.Errorf("compile base rules: %w", err)
+	var baseMatcher *Matcher
+	if len(opts.BaseRules) > 0 {
+		baseMatcher, err = NewMatcher(opts.BaseRules, opts.MatcherOptions)
+		if err != nil {
+			return nil, fmt.Errorf("compile base rules: %w", err)
+		}
 	}
 
 	rulesFileName, err := cleanRulesFileName(opts.RulesFileName)
