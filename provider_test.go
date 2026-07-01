@@ -76,6 +76,98 @@ func TestProviderMixesBaseAndFileRules(t *testing.T) {
 	}
 }
 
+func TestProviderDeepChainCumulativeMerge(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRulesFile(t, filepath.Join(root, ".pboignore"), "*.tmp\n")
+	writeRulesFile(t, filepath.Join(root, "a", ".pboignore"), "*.bak\n")
+	writeRulesFile(t, filepath.Join(root, "a", "b", ".pboignore"), "!keep.tmp\n")
+	writeRulesFile(t, filepath.Join(root, "a", "b", "c", ".pboignore"), "*.log\n")
+
+	p, err := NewProvider(root, ProviderOptions{
+		RulesFileName: ".pboignore",
+		MatcherOptions: MatcherOptions{
+			DefaultAction: ActionInclude,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	// "a/b" re-includes keep.tmp; neither "a" nor "a/b/c" touch it,
+	// so the mid-chain override must survive the intervening and trailing levels.
+	if included, err := p.Included("a/b/c/keep.tmp", false); err != nil || !included {
+		t.Fatalf("Included(a/b/c/keep.tmp)=%v err=%v, want included by mid-chain override", included, err)
+	}
+
+	// "other.tmp" matches none of the deeper overrides,
+	// so the root-level exclude must still apply even though three more directory levels
+	// of rules sit between the root and the file.
+	if included, err := p.Included("a/b/c/other.tmp", false); err != nil || included {
+		t.Fatalf("Included(a/b/c/other.tmp)=%v err=%v, want excluded by root rule", included, err)
+	}
+}
+
+func TestProviderDeepestOverlappingRuleWins(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRulesFile(t, filepath.Join(root, ".pboignore"), "file.txt\n")
+	writeRulesFile(t, filepath.Join(root, "a", ".pboignore"), "!file.txt\n")
+
+	p, err := NewProvider(root, ProviderOptions{
+		RulesFileName: ".pboignore",
+		MatcherOptions: MatcherOptions{
+			DefaultAction: ActionInclude,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	if included, err := p.Included("a/file.txt", false); err != nil || !included {
+		t.Fatalf("Included(a/file.txt)=%v err=%v, want included by deeper override", included, err)
+	}
+
+	if included, err := p.Included("file.txt", false); err != nil || included {
+		t.Fatalf("Included(file.txt)=%v err=%v, want excluded by root rule", included, err)
+	}
+}
+
+func TestProviderBaseRulesPersistThroughMultipleDirectoryLevels(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRulesFile(t, filepath.Join(root, ".rules"), "*.tmp\n")
+	writeRulesFile(t, filepath.Join(root, "sub", ".rules"), "!keep.tmp\n")
+
+	p, err := NewProvider(root, ProviderOptions{
+		RulesFileName: ".rules",
+		BaseRules: []Rule{
+			{Action: ActionExclude, Pattern: "*.log"},
+		},
+		MatcherOptions: MatcherOptions{
+			DefaultAction: ActionInclude,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	// BaseRules exclude *.log; neither directory level's rules touch it,
+	// so the base decision must survive through the "sub" directory's rules file.
+	if included, err := p.Included("sub/app.log", false); err != nil || included {
+		t.Fatalf("Included(sub/app.log)=%v err=%v, want excluded by base rules", included, err)
+	}
+
+	// Root excludes *.tmp, "sub" re-includes keep.tmp specifically:
+	// deepest directory override still applies on top of BaseRules.
+	if included, err := p.Included("sub/keep.tmp", false); err != nil || !included {
+		t.Fatalf("Included(sub/keep.tmp)=%v err=%v, want included by deepest override", included, err)
+	}
+}
+
 func TestProviderWithoutBaseRules(t *testing.T) {
 	t.Parallel()
 
