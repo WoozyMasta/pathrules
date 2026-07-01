@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
-## Unreleased
+## [0.1.3][] - 2026-07-01
 
 ### Changed
 
@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning][].
 ### Added
 
 * Fuzz tests and expanded benchmark and test coverage.
+
+[0.1.3]: https://github.com/WoozyMasta/pathrules/compare/v0.1.2...v0.1.3
 
 ## [0.1.2][] - 2026-02-21
 
