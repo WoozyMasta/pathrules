@@ -2,6 +2,12 @@
 
 Reusable gitignore-like path rule engine for include/exclude workflows.
 
+## Installation
+
+```shell
+go get github.com/woozymasta/pathrules
+```
+
 ## Features
 
 * gitignore-like patterns: `*`, `?`, `**`, `**/`, `[char-class]`
