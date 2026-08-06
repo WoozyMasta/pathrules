@@ -37,8 +37,8 @@ func NewMatcher(rules []Rule, opts MatcherOptions) (*Matcher, error) {
 // Decide returns deterministic include/exclude decision for one path.
 //
 // Decision policy:
-// - last matched rule wins
-// - if no rule matched, default action is used
+//   - last matched rule wins
+//   - if no rule matched, default action is used
 func (m *Matcher) Decide(path string, isDir bool) MatchResult {
 	return m.decideNormalized(normalizePath(path), isDir)
 }

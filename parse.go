@@ -14,10 +14,10 @@ import (
 // ParseRules parses gitignore-like rules from reader.
 //
 // Semantics:
-// - blank lines and comments are ignored
-// - "!" creates include rule
-// - plain lines create exclude rule
-// - "\#" and "\!" escape leading comment/negation tokens
+//   - blank lines and comments are ignored
+//   - "!" creates include rule
+//   - plain lines create exclude rule
+//   - "\#" and "\!" escape leading comment/negation tokens
 func ParseRules(r io.Reader) ([]Rule, error) {
 	s := bufio.NewScanner(r)
 	rules := make([]Rule, 0, 16)

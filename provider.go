@@ -126,8 +126,9 @@ func NewProvider(rootDir string, opts ProviderOptions) (*Provider, error) {
 // Decide returns final include/exclude decision for a path relative to provider root.
 //
 // Decision order:
-// 1. BaseRules matcher.
-// 2. Rules files from root to deepest containing directory.
+//  1. BaseRules matcher.
+//  2. Rules files from root to deepest containing directory.
+//
 // Last matched rule wins.
 func (p *Provider) Decide(relPath string, isDir bool) (MatchResult, error) {
 	if p == nil {
