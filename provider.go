@@ -22,6 +22,8 @@ type ProviderOptions struct {
 	RulesFileName string `json:"rules_file_name,omitempty" yaml:"rules_file_name,omitempty"`
 	// BaseRules are in-memory rules evaluated before directory-loaded rules.
 	BaseRules []Rule `json:"base_rules,omitempty" yaml:"base_rules,omitempty"`
+	// ParseOptions controls how each directory's rules file is parsed.
+	ParseOptions ParseOptions `json:"parse_options" yaml:"parse_options"`
 	// MatcherOptions controls rule matching behavior for all compiled matchers.
 	MatcherOptions MatcherOptions `json:"matcher_options" yaml:"matcher_options"`
 	// EnableSymlinkEscapeCheck enables resolved-path validation to block
@@ -50,7 +52,8 @@ type Provider struct {
 	resolvedRoot string
 	// rulesFileName is per-directory rules file name.
 	rulesFileName string
-
+	// parseOptions are shared, pre-validated rules-file parsing options.
+	parseOptions ParseOptions
 	// mu guards cache access.
 	mu sync.Mutex
 	// matcherOptions are shared compilation and decision options.
@@ -98,6 +101,11 @@ func NewProvider(rootDir string, opts ProviderOptions) (*Provider, error) {
 
 	opts.MatcherOptions.applyDefaults()
 
+	opts.ParseOptions.applyDefaults()
+	if err := opts.ParseOptions.validate(); err != nil {
+		return nil, err
+	}
+
 	var baseMatcher *Matcher
 	if len(opts.BaseRules) > 0 {
 		baseMatcher, err = NewMatcher(opts.BaseRules, opts.MatcherOptions)
@@ -116,6 +124,7 @@ func NewProvider(rootDir string, opts ProviderOptions) (*Provider, error) {
 		resolvedRoot:             resolvedRoot,
 		rulesFileName:            rulesFileName,
 		matcherOptions:           opts.MatcherOptions,
+		parseOptions:             opts.ParseOptions,
 		baseMatcher:              baseMatcher,
 		defaultIncluded:          opts.MatcherOptions.DefaultAction == ActionInclude,
 		enableSymlinkEscapeCheck: opts.EnableSymlinkEscapeCheck,
@@ -325,7 +334,7 @@ func (p *Provider) loadAndCompileDirMatcher(relDir string) (*Matcher, error) {
 			return nil, fmt.Errorf("read %s: %w", rulesPath, err)
 		}
 
-		rules, err := ParseRules(bytes.NewReader(content))
+		rules, err := ParseRules(bytes.NewReader(content), p.parseOptions)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", rulesPath, err)
 		}
@@ -352,7 +361,7 @@ func (p *Provider) loadAndCompileDirMatcher(relDir string) (*Matcher, error) {
 		return nil, fmt.Errorf("read %s: %w", rulesPath, err)
 	}
 
-	rules, err := ParseRules(bytes.NewReader(content))
+	rules, err := ParseRules(bytes.NewReader(content), p.parseOptions)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", rulesPath, err)
 	}

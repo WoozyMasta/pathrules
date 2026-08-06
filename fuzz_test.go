@@ -61,7 +61,7 @@ func FuzzParseRules(f *testing.F) {
 		// and must handle oversized/garbage input
 		// (including bufio.Scanner's line-too-long path)
 		// as a normal error, not a panic.
-		rules, err := ParseRules(bytes.NewReader(data))
+		rules, err := ParseRules(bytes.NewReader(data), ParseOptions{})
 		if err != nil {
 			return
 		}
@@ -98,7 +98,7 @@ func FuzzNewMatcher(f *testing.F) {
 			t.Skip("input too large for fuzz budget")
 		}
 
-		rules, err := ParseRulesString(src)
+		rules, err := ParseRulesString(src, ParseOptions{})
 		if err != nil {
 			return
 		}
@@ -135,7 +135,7 @@ func FuzzMatcherDecide(f *testing.F) {
 			t.Skip("input too large for fuzz budget")
 		}
 
-		rules, err := ParseRulesString(ruleText)
+		rules, err := ParseRulesString(ruleText, ParseOptions{})
 		if err != nil {
 			return
 		}

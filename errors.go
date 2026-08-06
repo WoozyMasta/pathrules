@@ -12,6 +12,8 @@ var (
 	ErrInvalidRule = errors.New("invalid rule")
 	// ErrInvalidPattern indicates malformed or unsupported rule pattern.
 	ErrInvalidPattern = errors.New("invalid pattern")
+	// ErrInvalidParseOptions indicates conflicting or unsupported ParseOptions values.
+	ErrInvalidParseOptions = errors.New("invalid parse options")
 	// ErrInvalidRulesFileName indicates invalid provider rules file name.
 	ErrInvalidRulesFileName = errors.New("invalid rules file name")
 	// ErrInvalidEntryName indicates invalid directory entry input for batch APIs.

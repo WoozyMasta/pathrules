@@ -29,7 +29,30 @@ func BenchmarkParseRules(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rules, err := ParseRulesString(src)
+		rules, err := ParseRulesString(src, ParseOptions{})
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if len(rules) == 0 {
+			b.Fatal("empty rules")
+		}
+	}
+}
+
+func BenchmarkParseRulesCustomPrefixes(b *testing.B) {
+	src := buildBenchmarkRulesSource(benchRuleCount)
+	src = strings.ReplaceAll(src, "#", ";;")
+	src = strings.ReplaceAll(src, "!", "~")
+	opts := ParseOptions{
+		CommentPrefix:  ";;",
+		NegationPrefix: "~",
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rules, err := ParseRulesString(src, opts)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -41,7 +64,7 @@ func BenchmarkParseRules(b *testing.B) {
 }
 
 func BenchmarkNewMatcher(b *testing.B) {
-	rules, err := ParseRulesString(buildBenchmarkRulesSource(benchRuleCount))
+	rules, err := ParseRulesString(buildBenchmarkRulesSource(benchRuleCount), ParseOptions{})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -65,7 +88,7 @@ func BenchmarkNewMatcher(b *testing.B) {
 }
 
 func BenchmarkMatcherDecide(b *testing.B) {
-	rules, err := ParseRulesString(buildBenchmarkRulesSource(benchRuleCount))
+	rules, err := ParseRulesString(buildBenchmarkRulesSource(benchRuleCount), ParseOptions{})
 	if err != nil {
 		b.Fatal(err)
 	}

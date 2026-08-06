@@ -25,7 +25,7 @@ go get github.com/woozymasta/pathrules
 rules, _ := pathrules.ParseRulesString(`
 *.tmp
 !keep.tmp
-`)
+`, pathrules.ParseOptions{})
 
 m, _ := pathrules.NewMatcher(rules, pathrules.MatcherOptions{
     DefaultAction: pathrules.ActionInclude,
@@ -34,6 +34,29 @@ m, _ := pathrules.NewMatcher(rules, pathrules.MatcherOptions{
 _ = m.Included("keep.tmp", false) // true
 _ = m.Included("a.tmp", false)    // false
 ```
+
+## Custom Parse Options
+
+`ParseOptions` controls how plain and negated (`!`-prefixed) lines
+are mapped to actions, and lets comment/negation prefixes be reconfigured.
+The default mapping
+(plain lines exclude, `!` includes) is the gitignore convention;
+inverting it gives an allow-list where plain lines include and `!` excludes:
+
+```go
+rules, _ := pathrules.ParseRulesString(`
+*.c
+!*.tmp
+`, pathrules.ParseOptions{
+    PlainAction:   pathrules.ActionInclude,
+    NegatedAction: pathrules.ActionExclude,
+})
+```
+
+Other `ParseOptions` fields: `DisableNegation`
+(treat `!` as a literal character instead of a prefix),
+`CommentPrefix`/`NegationPrefix` (custom tokens instead of `#`/`!`),
+`KeepTrailingSpaces` (skip trailing-space trimming).
 
 ## Recursive Provider
 

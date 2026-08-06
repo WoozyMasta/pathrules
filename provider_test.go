@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 )
 
@@ -38,6 +39,53 @@ func TestProviderRecursiveOverrides(t *testing.T) {
 
 	if included, err := p.Included("textures/a.tmp", false); err != nil || !included {
 		t.Fatalf("Included(textures/a.tmp)=%v err=%v, want included", included, err)
+	}
+}
+
+func TestProviderParseOptionsPropagation(t *testing.T) {
+	t.Parallel()
+
+	for _, enableSymlinkEscapeCheck := range []bool{false, true} {
+		t.Run(strconv.FormatBool(enableSymlinkEscapeCheck), func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			// Only makes sense under an inverted PlainAction/NegatedAction mapping:
+			// plain lines include, "!" excludes.
+			writeRulesFile(t, filepath.Join(root, ".pboignore"), "*.c\n!*.tmp\n")
+			writeRulesFile(t, filepath.Join(root, "sub", ".pboignore"), "*.h\n!*.bak\n")
+
+			p, err := NewProvider(root, ProviderOptions{
+				RulesFileName: ".pboignore",
+				ParseOptions: ParseOptions{
+					PlainAction:   ActionInclude,
+					NegatedAction: ActionExclude,
+				},
+				MatcherOptions: MatcherOptions{
+					DefaultAction: ActionExclude,
+				},
+				EnableSymlinkEscapeCheck: enableSymlinkEscapeCheck,
+			})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+
+			if included, err := p.Included("main.c", false); err != nil || !included {
+				t.Fatalf("Included(main.c)=%v err=%v, want included", included, err)
+			}
+
+			if included, err := p.Included("a.tmp", false); err != nil || included {
+				t.Fatalf("Included(a.tmp)=%v err=%v, want excluded", included, err)
+			}
+
+			if included, err := p.Included("sub/main.h", false); err != nil || !included {
+				t.Fatalf("Included(sub/main.h)=%v err=%v, want included", included, err)
+			}
+
+			if included, err := p.Included("sub/a.bak", false); err != nil || included {
+				t.Fatalf("Included(sub/a.bak)=%v err=%v, want excluded", included, err)
+			}
+		})
 	}
 }
 

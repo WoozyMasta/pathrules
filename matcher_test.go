@@ -17,7 +17,7 @@ func TestMatcherIgnoreMode(t *testing.T) {
 !keep.tmp
 build/
 !build/keep.txt
-`)
+`, ParseOptions{})
 	if err != nil {
 		t.Fatalf("ParseRulesString: %v", err)
 	}

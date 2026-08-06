@@ -14,6 +14,20 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.2.0][] - 2026-08-06
+
+### Changed
+
+* `ParseRules`, `ParseRulesString`, `LoadRulesFile`, and `LoadRulesFiles`
+  now take a `ParseOptions` parameter controlling comment/negation prefixes,
+  plain/negated rule actions, negation disabling, and trailing-space trimming.
+  `LoadRulesFiles` signature is now
+  `LoadRulesFiles(opts ParseOptions, paths ...string)`.
+  `ProviderOptions` gains a `ParseOptions` field
+  applied to every directory rules file.
+
+[0.2.0]: https://github.com/WoozyMasta/pathrules/compare/v0.1.3...v0.2.0
+
 ## [0.1.3][] - 2026-07-01
 
 ### Changed

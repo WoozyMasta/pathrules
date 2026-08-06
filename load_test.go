@@ -19,7 +19,7 @@ func TestLoadRulesFile(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	rules, err := LoadRulesFile(path)
+	rules, err := LoadRulesFile(path, ParseOptions{})
 	if err != nil {
 		t.Fatalf("LoadRulesFile: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestLoadRulesFiles(t *testing.T) {
 		t.Fatalf("WriteFile(%s): %v", p2, err)
 	}
 
-	rules, err := LoadRulesFiles(p1, p2)
+	rules, err := LoadRulesFiles(ParseOptions{}, p1, p2)
 	if err != nil {
 		t.Fatalf("LoadRulesFiles: %v", err)
 	}
