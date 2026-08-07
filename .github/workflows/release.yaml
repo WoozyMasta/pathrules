@@ -20,7 +20,7 @@ jobs:
       - uses: rvben/rumdl@v0
 
       - name: Run CI
-        run: make ci test-race fuzz
+        run: make ci test-race fuzz FUZZ_TIME=10s
 
       - name: Extract changelog
         run: make release-notes > release.md
