@@ -19,7 +19,7 @@ func NewMatcher(rules []Rule, opts MatcherOptions) (*Matcher, error) {
 
 	compiled := make([]compiledRule, 0, len(rules))
 	for _, rule := range rules {
-		cr, err := compileRule(rule, opts.CaseInsensitive)
+		cr, err := compileRule(rule, opts)
 		if err != nil {
 			return nil, err
 		}

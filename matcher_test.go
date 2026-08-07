@@ -5,6 +5,7 @@
 package pathrules
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -356,5 +357,285 @@ func TestMatcherUnanchoredPathWildcard(t *testing.T) {
 
 	if m.Excluded("scripts/module_010/sub/main.c", false) {
 		t.Fatalf("scripts/module_010/sub/main.c must not match single-segment wildcard")
+	}
+}
+
+func TestMatcherBraceExpansionDisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: "*.{md,txt}"},
+	}, MatcherOptions{
+		DefaultAction: ActionExclude,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	// EnableBraceExpansion defaults to false: "{" and "}" stay literal characters.
+	if m.Included("readme.md", false) {
+		t.Fatalf("readme.md must not be included when brace expansion is disabled")
+	}
+
+	if !m.Included("readme.{md,txt}", false) {
+		t.Fatalf("readme.{md,txt} (literal) must be included when brace expansion is disabled")
+	}
+}
+
+func TestMatcherBraceExpansionEnabled(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: "*.{md,txt}"},
+	}, MatcherOptions{
+		DefaultAction:        ActionExclude,
+		EnableBraceExpansion: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Included("readme.md", false) {
+		t.Fatalf("readme.md must be included")
+	}
+
+	if !m.Included("readme.txt", false) {
+		t.Fatalf("readme.txt must be included")
+	}
+
+	if m.Included("readme.rst", false) {
+		t.Fatalf("readme.rst must not be included")
+	}
+}
+
+func TestMatcherBraceExpansionCaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: "*.{MD,TXT}"},
+	}, MatcherOptions{
+		DefaultAction:        ActionExclude,
+		CaseInsensitive:      true,
+		EnableBraceExpansion: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Included("README.MD", false) {
+		t.Fatalf("README.MD must be included in case-insensitive mode")
+	}
+}
+
+func TestMatcherBraceExpansionAnchoredDirOnly(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionExclude, Pattern: "/{docs,doc}/"},
+	}, MatcherOptions{
+		DefaultAction:        ActionInclude,
+		EnableBraceExpansion: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Excluded("docs/readme.txt", false) {
+		t.Fatalf("docs/readme.txt must be excluded")
+	}
+
+	if !m.Excluded("doc/readme.txt", false) {
+		t.Fatalf("doc/readme.txt must be excluded")
+	}
+
+	if m.Excluded("other/readme.txt", false) {
+		t.Fatalf("other/readme.txt must not be excluded")
+	}
+
+	if m.Excluded("sub/docs/readme.txt", false) {
+		t.Fatalf("sub/docs/readme.txt must not match anchored brace group")
+	}
+}
+
+func TestMatcherBraceExpansionSlashInsideGroup(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionExclude, Pattern: "a/{b,c}/d"},
+	}, MatcherOptions{
+		DefaultAction:        ActionInclude,
+		EnableBraceExpansion: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Excluded("a/b/d", false) {
+		t.Fatalf("a/b/d must be excluded")
+	}
+
+	if !m.Excluded("a/c/d", false) {
+		t.Fatalf("a/c/d must be excluded")
+	}
+
+	if m.Excluded("a/e/d", false) {
+		t.Fatalf("a/e/d must not be excluded")
+	}
+}
+
+func TestMatcherBraceExpansionNestedRejected(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: "foo.{md,{adoc,asciidoc}}"},
+	}, MatcherOptions{
+		EnableBraceExpansion: true,
+	})
+	if !errors.Is(err, ErrInvalidPattern) {
+		t.Fatalf("NewMatcher: got err=%v, want ErrInvalidPattern", err)
+	}
+}
+
+func TestMatcherEscapingDisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: `file\*.txt`},
+	}, MatcherOptions{
+		DefaultAction: ActionExclude,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	// EnableEscaping defaults to false:
+	// "\" is still normalized to "/" (Windows-style path input),
+	// so this pattern means the path "file/*.txt", not a literal "*".
+	if !m.Included("file/anything.txt", false) {
+		t.Fatalf("file/anything.txt must be included")
+	}
+
+	if m.Included("file*.txt", false) {
+		t.Fatalf("file*.txt must not be included when escaping is disabled")
+	}
+}
+
+func TestMatcherEscapingLiteralWildcard(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: `file\*.txt`},
+	}, MatcherOptions{
+		DefaultAction:  ActionExclude,
+		EnableEscaping: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Included("file*.txt", false) {
+		t.Fatalf("file*.txt (literal) must be included")
+	}
+
+	if m.Included("fileA.txt", false) {
+		t.Fatalf("fileA.txt must not be included: \\* is a literal star, not a wildcard")
+	}
+}
+
+func TestMatcherEscapingLiteralCharClassBracket(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: `data\[0\].bin`},
+	}, MatcherOptions{
+		DefaultAction:  ActionExclude,
+		EnableEscaping: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Included("data[0].bin", false) {
+		t.Fatalf("data[0].bin (literal) must be included")
+	}
+
+	if m.Included("data0.bin", false) {
+		t.Fatalf("data0.bin must not be included: \\[ \\] are literal brackets, not a char class")
+	}
+}
+
+func TestMatcherEscapingCaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: `FILE\*.TXT`},
+	}, MatcherOptions{
+		DefaultAction:   ActionExclude,
+		CaseInsensitive: true,
+		EnableEscaping:  true,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Included("file*.txt", false) {
+		t.Fatalf("file*.txt must be included in case-insensitive mode")
+	}
+}
+
+func TestMatcherEscapingWithBraceExpansion(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: `file\{v1\}.{md,txt}`},
+	}, MatcherOptions{
+		DefaultAction:        ActionExclude,
+		EnableBraceExpansion: true,
+		EnableEscaping:       true,
+	})
+	if err != nil {
+		t.Fatalf("NewMatcher: %v", err)
+	}
+
+	if !m.Included("file{v1}.md", false) {
+		t.Fatalf("file{v1}.md must be included")
+	}
+
+	if !m.Included("file{v1}.txt", false) {
+		t.Fatalf("file{v1}.txt must be included")
+	}
+
+	if m.Included("fileXv1X.md", false) {
+		t.Fatalf("fileXv1X.md must not be included: \\{ \\} are literal braces")
+	}
+}
+
+// Without EnableEscaping, EnableBraceExpansion's strict grammar leaves no way
+// to write a literal "{": any "{" must form a valid >=2-alternative group or compilation fails.
+func TestMatcherLiteralBraceRequiresEscapingWhenExpansionEnabled(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: "notes{draft}.txt"},
+	}, MatcherOptions{
+		EnableBraceExpansion: true,
+	})
+	if !errors.Is(err, ErrInvalidPattern) {
+		t.Fatalf("NewMatcher: got err=%v, want ErrInvalidPattern", err)
+	}
+}
+
+func TestMatcherBraceExpansionLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	group := "{a,b,c,d,e,f,g,h,i,j}"
+
+	_, err := NewMatcher([]Rule{
+		{Action: ActionInclude, Pattern: group + group + group},
+	}, MatcherOptions{
+		EnableBraceExpansion: true,
+	})
+	if !errors.Is(err, ErrInvalidPattern) {
+		t.Fatalf("NewMatcher: got err=%v, want ErrInvalidPattern", err)
 	}
 }

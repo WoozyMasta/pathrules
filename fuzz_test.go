@@ -165,6 +165,52 @@ func FuzzMatcherDecide(f *testing.F) {
 	})
 }
 
+// FuzzExpandBraces feeds arbitrary pattern text and an escaping flag through expandBraces
+// and checks it never panics, never hangs, and only ever returns either a non-empty result
+// bounded by maxBraceExpansions or an ErrInvalidPattern.
+func FuzzExpandBraces(f *testing.F) {
+	seeds := []string{
+		"",
+		"foo{bar}.txt",
+		"*.{md,txt}",
+		"README{,.md,.txt}",
+		"{foo,bar}-{one,two}",
+		"a/{b,c}/d",
+		"foo.{md,{adoc,asciidoc}}",
+		"{a,b,c,d,e,f,g,h,i,j}{a,b,c,d,e,f,g,h,i,j}{a,b,c,d,e,f,g,h,i,j}",
+		"{{{{{{{{{{",
+		"}}}}}}}}}}",
+		strings.Repeat("{a,b}", 200),
+		`foo\{bar\}.txt`,
+		`{a\,b,c}`,
+		"path/[{,}]file",
+	}
+	for _, s := range seeds {
+		f.Add(s, false)
+		f.Add(s, true)
+	}
+
+	f.Fuzz(func(t *testing.T, pattern string, escaping bool) {
+		if len(pattern) > fuzzMaxRuleTextLen {
+			t.Skip("input too large for fuzz budget")
+		}
+
+		result, err := expandBraces(pattern, escaping)
+		if err != nil {
+			return
+		}
+
+		if len(result) == 0 {
+			t.Fatalf("expandBraces(%q, %v) returned no alternatives and no error", pattern, escaping)
+		}
+
+		if len(result) > maxBraceExpansions {
+			t.Fatalf("expandBraces(%q, %v) returned %d alternatives, want <= %d",
+				pattern, escaping, len(result), maxBraceExpansions)
+		}
+	})
+}
+
 // FuzzProviderDecide feeds arbitrary root/subdirectory rules file content
 // and an arbitrary relative path through Provider.Decide,
 // and checks it never panics and respects the same MatchResult invariants as Matcher.Decide.

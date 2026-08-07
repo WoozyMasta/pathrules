@@ -14,6 +14,19 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.3.0][] - 2026-08-07
+
+### Added
+
+* Optional brace alternation in patterns, e.g. `*.{md,txt}`,
+  via `MatcherOptions.EnableBraceExpansion` (disabled by default).
+  The grammar is strict: every `{` must open a complete,
+  non-nested, >=2-alternative group, or it's a compile error.
+* Optional backslash escaping of pattern metacharacters,
+  e.g. `\*`, via `MatcherOptions.EnableEscaping` (disabled by default).
+
+[0.3.0]: https://github.com/WoozyMasta/pathrules/compare/v0.2.0...v0.3.0
+
 ## [0.2.0][] - 2026-08-06
 
 ### Changed

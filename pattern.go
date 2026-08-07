@@ -10,32 +10,42 @@ import (
 	"strings"
 )
 
-// compiledRule is matcher-internal compiled representation of one rule.
-type compiledRule struct {
+// compileStrategy is the precompiled matching strategy for one pattern alternative:
+// the cheapest matching approach that preserves expected gitignore-like semantics for that pattern text.
+type compileStrategy struct {
 	// componentRE matches basename/component patterns without slash in source.
 	componentRE *regexp.Regexp
-	// componentExact matches basename/component patterns without glob meta.
-	componentExact string
-	// componentGlob matches component patterns with "*" and "?" without regexp.
-	componentGlob segmentPattern
-	// pathExact matches full path patterns without glob meta.
-	pathExact string
-	// pathSegments matches slash patterns without "**" and char-classes.
-	pathSegments []segmentPattern
-	// pathPrefixSegments matches slash patterns with trailing "/**".
-	pathPrefixSegments []segmentPattern
 	// pathRE matches full path patterns.
 	pathRE *regexp.Regexp
 	// pathDirRE matches full path patterns targeting a directory subtree.
 	pathDirRE *regexp.Regexp
+	// componentExact matches basename/component patterns without glob meta.
+	componentExact string
+	// pathExact matches full path patterns without glob meta.
+	pathExact string
+	// componentGlob matches component patterns with "*" and "?" without regexp.
+	componentGlob segmentPattern
+	// pathSegments matches slash patterns without "**" and char-classes.
+	pathSegments []segmentPattern
+	// pathPrefixSegments matches slash patterns with trailing "/**".
+	pathPrefixSegments []segmentPattern
+	// hasSlash means pattern contains "/" after normalization.
+	hasSlash bool
+}
+
+// compiledRule is matcher-internal compiled representation of one rule.
+type compiledRule struct {
+	// alternates holds one strategy per brace-expansion alternative when the
+	// source pattern expanded into more than one; unused (nil) otherwise.
+	alternates []compileStrategy
 	// source is original source rule.
 	source Rule
+	// compileStrategy is the sole matching strategy, used when alternates is nil.
+	compileStrategy
 	// anchored means source pattern starts with "/".
 	anchored bool
 	// dirOnly means source pattern ends with "/".
 	dirOnly bool
-	// hasSlash means source pattern contains "/" after normalization.
-	hasSlash bool
 }
 
 // segmentPattern is precompiled component/path segment matcher.
@@ -47,14 +57,15 @@ type segmentPattern struct {
 }
 
 // compileRule compiles one source rule into the cheapest matching strategy
+// (or, with brace expansion, strategies)
 // that preserves expected gitignore-like semantics.
-func compileRule(rule Rule, caseInsensitive bool) (compiledRule, error) {
+func compileRule(rule Rule, opts MatcherOptions) (compiledRule, error) {
 	if !rule.Action.valid() {
 		return compiledRule{}, fmt.Errorf("%w: unsupported action %d", ErrInvalidRule, rule.Action)
 	}
 
-	pattern := normalizePattern(rule.Pattern)
-	if caseInsensitive {
+	pattern := normalizePattern(rule.Pattern, opts.EnableEscaping)
+	if opts.CaseInsensitive {
 		pattern = asciiLower(pattern)
 	}
 
@@ -75,76 +86,133 @@ func compileRule(rule Rule, caseInsensitive bool) (compiledRule, error) {
 		return compiledRule{}, fmt.Errorf("%w: empty after normalization (%q)", ErrInvalidPattern, rule.Pattern)
 	}
 
+	patterns := []string{pattern}
+	if opts.EnableBraceExpansion && strings.IndexByte(pattern, '{') >= 0 {
+		expanded, err := expandBraces(pattern, opts.EnableEscaping)
+		if err != nil {
+			return compiledRule{}, fmt.Errorf("pattern %q: %w", rule.Pattern, err)
+		}
+
+		patterns = expanded
+	}
+
+	if len(patterns) == 1 {
+		strat, err := compilePatternStrategy(patterns[0], rule.Pattern, cr.anchored, cr.dirOnly, opts.EnableEscaping)
+		if err != nil {
+			return compiledRule{}, err
+		}
+
+		cr.compileStrategy = strat
+		return cr, nil
+	}
+
+	cr.alternates = make([]compileStrategy, 0, len(patterns))
+	for _, p := range patterns {
+		if p == "" {
+			return compiledRule{}, fmt.Errorf("%w: brace expansion of %q produced an empty alternative",
+				ErrInvalidPattern, rule.Pattern)
+		}
+
+		strat, err := compilePatternStrategy(p, rule.Pattern, cr.anchored, cr.dirOnly, opts.EnableEscaping)
+		if err != nil {
+			return compiledRule{}, err
+		}
+
+		cr.alternates = append(cr.alternates, strat)
+	}
+
+	return cr, nil
+}
+
+// compilePatternStrategy compiles one pattern alternative
+// (already trimmed of leading/trailing "/") into the cheapest matching strategy
+// that preserves expected gitignore-like semantics.
+// anchored and dirOnly are rule-level (shared across all alternatives of the same rule);
+// origPattern is the original, pre-expansion rule pattern, used only for error messages.
+func compilePatternStrategy(pattern, origPattern string, anchored, dirOnly, escaping bool) (compileStrategy, error) {
+	var s compileStrategy
+
 	// Anchored patterns ("/name") must be matched against full path from root
 	// even when they do not contain an explicit slash after normalization.
-	cr.hasSlash = strings.Contains(pattern, "/") || cr.anchored
-	hasMeta := patternHasGlobMeta(pattern)
-	hasCharClass := patternHasCharClass(pattern)
+	s.hasSlash = strings.Contains(pattern, "/") || anchored
 
-	if !cr.hasSlash {
-		// Component-only rules can avoid regexp completely for exact and simple wildcard cases.
-		if !hasMeta {
-			cr.componentExact = pattern
-			return cr, nil
+	// A pattern containing a backslash escape cannot use the byte-fast paths below
+	// (none of them know that a metacharacter following "\" is literal),
+	// so it always goes through the escape-aware regexp fallback.
+	forceRegex := escaping && strings.IndexByte(pattern, '\\') >= 0
+
+	if !forceRegex {
+		hasMeta := patternHasGlobMeta(pattern)
+		hasCharClass := patternHasCharClass(pattern)
+
+		if !s.hasSlash {
+			// Component-only rules can avoid regexp completely for exact and simple wildcard cases.
+			if !hasMeta {
+				s.componentExact = pattern
+				return s, nil
+			}
+
+			if !hasCharClass {
+				s.componentGlob = newSegmentPattern(pattern)
+				return s, nil
+			}
+		} else {
+			// Path rules get similar fast paths first: exact match, then segmented wildcard matching.
+			if !hasMeta {
+				s.pathExact = pattern
+				return s, nil
+			}
+
+			if prefix, ok := strings.CutSuffix(pattern, "/**"); ok {
+				// Trailing "/**" is common and can be matched as "prefix directory + any descendants".
+				if prefix != "" && canUseSimplePathSegments(prefix) {
+					s.pathPrefixSegments = compilePathSegments(prefix)
+					return s, nil
+				}
+			}
+
+			if canUseSimplePathSegments(pattern) {
+				s.pathSegments = compilePathSegments(pattern)
+				return s, nil
+			}
 		}
+	}
 
-		if !hasCharClass {
-			cr.componentGlob = newSegmentPattern(pattern)
-			return cr, nil
-		}
-
-		re, err := regexp.Compile("^" + globToRegexComponent(pattern) + "$")
+	// Fallback for patterns with char classes, complex "**" combinations,
+	// or (with EnableEscaping) a backslash escape.
+	if !s.hasSlash {
+		re, err := regexp.Compile("^" + globToRegexComponent(pattern, forceRegex) + "$")
 		if err != nil {
-			return compiledRule{}, fmt.Errorf("%w: compile component %q: %v", ErrInvalidPattern, rule.Pattern, err)
+			return compileStrategy{}, fmt.Errorf("%w: compile component %q: %v", ErrInvalidPattern, origPattern, err)
 		}
 
-		cr.componentRE = re
-		return cr, nil
+		s.componentRE = re
+		return s, nil
 	}
 
-	// Path rules get similar fast paths first: exact match, then segmented wildcard matching.
-	if !hasMeta {
-		cr.pathExact = pattern
-		return cr, nil
+	body := globToRegexPath(pattern, forceRegex)
+	rePrefix := `(?:^|.*/)`
+	if anchored {
+		rePrefix = `^`
 	}
 
-	if prefix, ok := strings.CutSuffix(pattern, "/**"); ok {
-		// Trailing "/**" is common and can be matched as "prefix directory + any descendants".
-		if prefix != "" && canUseSimplePathSegments(prefix) {
-			cr.pathPrefixSegments = compilePathSegments(prefix)
-			return cr, nil
-		}
-	}
-
-	if canUseSimplePathSegments(pattern) {
-		cr.pathSegments = compilePathSegments(pattern)
-		return cr, nil
-	}
-
-	// Fallback for patterns with char classes or complex "**" combinations.
-	body := globToRegexPath(pattern)
-	prefix := `(?:^|.*/)`
-	if cr.anchored {
-		prefix = `^`
-	}
-
-	if cr.dirOnly {
-		re, err := regexp.Compile(prefix + body + `(?:/.*)?$`)
+	if dirOnly {
+		re, err := regexp.Compile(rePrefix + body + `(?:/.*)?$`)
 		if err != nil {
-			return compiledRule{}, fmt.Errorf("%w: compile dir pattern %q: %v", ErrInvalidPattern, rule.Pattern, err)
+			return compileStrategy{}, fmt.Errorf("%w: compile dir pattern %q: %v", ErrInvalidPattern, origPattern, err)
 		}
 
-		cr.pathDirRE = re
-		return cr, nil
+		s.pathDirRE = re
+		return s, nil
 	}
 
-	re, err := regexp.Compile(prefix + body + `$`)
+	re, err := regexp.Compile(rePrefix + body + `$`)
 	if err != nil {
-		return compiledRule{}, fmt.Errorf("%w: compile path pattern %q: %v", ErrInvalidPattern, rule.Pattern, err)
+		return compileStrategy{}, fmt.Errorf("%w: compile path pattern %q: %v", ErrInvalidPattern, origPattern, err)
 	}
 
-	cr.pathRE = re
-	return cr, nil
+	s.pathRE = re
+	return s, nil
 }
 
 // matches reports whether compiled rule matches normalized candidate path.
@@ -153,53 +221,75 @@ func (r *compiledRule) matches(candidate string, isDir bool) bool {
 		return false
 	}
 
-	if r.hasSlash {
-		// Path strategy priority mirrors compile-time selection: exact -> fast segmented -> regexp.
-		if r.pathExact != "" {
-			return matchExactPathRule(r.pathExact, candidate, isDir, r.anchored, r.dirOnly)
+	if len(r.alternates) > 0 {
+		// Brace-expanded rule: matched if any alternative matches.
+		for i := range r.alternates {
+			if r.alternates[i].matches(candidate, isDir, r.anchored, r.dirOnly) {
+				return true
+			}
 		}
 
-		if len(r.pathPrefixSegments) > 0 {
-			return matchPathPrefixDoubleStar(r.pathPrefixSegments, candidate, r.anchored)
-		}
-
-		if len(r.pathSegments) > 0 {
-			return matchPathSegments(r.pathSegments, candidate, r.anchored, r.dirOnly)
-		}
-
-		if r.dirOnly {
-			return r.pathDirRE != nil && r.pathDirRE.MatchString(candidate)
-		}
-
-		return r.pathRE != nil && r.pathRE.MatchString(candidate)
-	}
-
-	// Component strategy priority mirrors compile-time selection too.
-	if r.componentExact != "" {
-		if !r.dirOnly {
-			return pathBase(candidate) == r.componentExact
-		}
-
-		return matchDirOnlyComponentExact(r.componentExact, candidate, isDir)
-	}
-
-	if r.componentGlob.text != "" {
-		if !r.dirOnly {
-			return matchSegmentPattern(r.componentGlob, pathBase(candidate))
-		}
-
-		return matchDirOnlyComponentPattern(r.componentGlob, candidate, isDir)
-	}
-
-	if r.componentRE == nil {
 		return false
 	}
 
-	if !r.dirOnly {
-		return r.componentRE.MatchString(pathBase(candidate))
+	return r.compileStrategy.matches(candidate, isDir, r.anchored, r.dirOnly)
+}
+
+// matches reports whether one compiled pattern strategy matches candidate,
+// given the rule-level anchored/dirOnly flags shared
+// across all of a rule's brace-expansion alternatives.
+func (s *compileStrategy) matches(candidate string, isDir, anchored, dirOnly bool) bool {
+	if candidate == "" {
+		return false
 	}
 
-	return matchDirOnlyComponent(r.componentRE, candidate, isDir)
+	if s.hasSlash {
+		// Path strategy priority mirrors compile-time selection: exact -> fast segmented -> regexp.
+		if s.pathExact != "" {
+			return matchExactPathRule(s.pathExact, candidate, isDir, anchored, dirOnly)
+		}
+
+		if len(s.pathPrefixSegments) > 0 {
+			return matchPathPrefixDoubleStar(s.pathPrefixSegments, candidate, anchored)
+		}
+
+		if len(s.pathSegments) > 0 {
+			return matchPathSegments(s.pathSegments, candidate, anchored, dirOnly)
+		}
+
+		if dirOnly {
+			return s.pathDirRE != nil && s.pathDirRE.MatchString(candidate)
+		}
+
+		return s.pathRE != nil && s.pathRE.MatchString(candidate)
+	}
+
+	// Component strategy priority mirrors compile-time selection too.
+	if s.componentExact != "" {
+		if !dirOnly {
+			return pathBase(candidate) == s.componentExact
+		}
+
+		return matchDirOnlyComponentExact(s.componentExact, candidate, isDir)
+	}
+
+	if s.componentGlob.text != "" {
+		if !dirOnly {
+			return matchSegmentPattern(s.componentGlob, pathBase(candidate))
+		}
+
+		return matchDirOnlyComponentPattern(s.componentGlob, candidate, isDir)
+	}
+
+	if s.componentRE == nil {
+		return false
+	}
+
+	if !dirOnly {
+		return s.componentRE.MatchString(pathBase(candidate))
+	}
+
+	return matchDirOnlyComponent(s.componentRE, candidate, isDir)
 }
 
 // patternHasGlobMeta reports whether pattern contains supported glob meta.
@@ -540,10 +630,16 @@ func matchDirOnlyComponentPattern(pattern segmentPattern, candidate string, isDi
 }
 
 // globToRegexComponent converts a gitignore-like component pattern to regex body.
-func globToRegexComponent(pat string) string {
+// When escaping is true, "\X" emits a literal X instead of letting X take on its usual glob meaning.
+func globToRegexComponent(pat string, escaping bool) string {
 	var b strings.Builder
 
 	for i := 0; i < len(pat); i++ {
+		if next, ok := appendEscapedLiteralRegex(pat, i, escaping, &b); ok {
+			i = next
+			continue
+		}
+
 		if next, ok := appendCharClassRegex(pat, i, &b); ok {
 			i = next
 			continue
@@ -568,10 +664,16 @@ func globToRegexComponent(pat string) string {
 }
 
 // globToRegexPath converts a gitignore-like path pattern to regex body.
-func globToRegexPath(pat string) string {
+// When escaping is true, "\X" emits a literal X instead of letting X take on its usual glob meaning.
+func globToRegexPath(pat string, escaping bool) string {
 	var b strings.Builder
 
 	for i := 0; i < len(pat); i++ {
+		if next, ok := appendEscapedLiteralRegex(pat, i, escaping, &b); ok {
+			i = next
+			continue
+		}
+
 		// Handle "**/" so it can match zero or more directories.
 		if pat[i] == '*' && i+2 < len(pat) && pat[i+1] == '*' && pat[i+2] == '/' {
 			b.WriteString(`(?:.*/)?`)
@@ -601,6 +703,25 @@ func globToRegexPath(pat string) string {
 	}
 
 	return b.String()
+}
+
+// appendEscapedLiteralRegex appends the regex-escaped literal for a "\X" escape sequence
+// at pat[start] and reports the index of its last consumed byte.
+// Returns ok=false (nothing appended) when escaping is disabled
+// or pat[start] is not a backslash, leaving the byte for normal glob handling.
+func appendEscapedLiteralRegex(pat string, start int, escaping bool, b *strings.Builder) (int, bool) {
+	if !escaping || start >= len(pat) || pat[start] != '\\' {
+		return start, false
+	}
+
+	if start+1 < len(pat) {
+		b.WriteString(regexEscapeByte(pat[start+1]))
+		return start + 1, true
+	}
+
+	// Trailing lone backslash: no character to escape, so it is itself literal.
+	b.WriteString(regexEscapeByte('\\'))
+	return start, true
 }
 
 // appendCharClassRegex appends a parsed glob char class (`[...]`) as regex class.
@@ -671,9 +792,13 @@ func findCharClassEnd(pat string, start int) int {
 }
 
 // regexEscapeByte escapes one byte for regexp source.
+// "*" and "?" are included because appendEscapedLiteralRegex (an EnableEscaping "\X" escape)
+// can call this for any byte, including glob wildcards forced literal;
+// globToRegexComponent/globToRegexPath's own switch always intercepts
+// an unescaped "*"/"?" before it would otherwise reach here.
 func regexEscapeByte(c byte) string {
 	switch c {
-	case '.', '+', '(', ')', '|', '{', '}', '[', ']', '^', '$', '\\':
+	case '.', '+', '*', '?', '(', ')', '|', '{', '}', '[', ']', '^', '$', '\\':
 		return `\` + string(c)
 	default:
 		return string(c)

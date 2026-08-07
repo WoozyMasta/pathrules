@@ -37,9 +37,15 @@ func normalizePath(raw string) string {
 }
 
 // normalizePattern normalizes source pattern for compilation.
-func normalizePattern(raw string) string {
+// When escaping is false, backslashes are normalized to "/"
+// (Windows-style path input, same as when EnableEscaping does not exist).
+// When true, backslashes are left as-is for the compiler to resolve as escape sequences.
+func normalizePattern(raw string, escaping bool) string {
 	raw = strings.TrimSpace(raw)
-	raw = strings.ReplaceAll(raw, `\`, `/`)
+	if !escaping {
+		raw = strings.ReplaceAll(raw, `\`, `/`)
+	}
+
 	return raw
 }
 

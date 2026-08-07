@@ -11,6 +11,9 @@ go get github.com/woozymasta/pathrules
 ## Features
 
 * gitignore-like patterns: `*`, `?`, `**`, `**/`, `[char-class]`
+* optional brace alternation: `{a,b,c}` (`EnableBraceExpansion`, off by default)
+* optional backslash escaping of metacharacters: `\*`, `\{`, ...
+  (`EnableEscaping`, off by default, independent of `EnableBraceExpansion`)
 * leading `/` anchored rules
 * trailing `/` directory-only rules
 * `!` negation support
@@ -57,6 +60,57 @@ Other `ParseOptions` fields: `DisableNegation`
 (treat `!` as a literal character instead of a prefix),
 `CommentPrefix`/`NegationPrefix` (custom tokens instead of `#`/`!`),
 `KeepTrailingSpaces` (skip trailing-space trimming).
+
+## Brace Alternation
+
+`{a,b,c}` alternation is opt-in via `MatcherOptions.EnableBraceExpansion`;
+disabled by default so `{` and `}` stay literal for existing rule sets.
+Each rule pattern is expanded into its alternatives at compile time
+(a rule like `/CHANGELOG.{md,txt}` still counts and matches as one rule):
+
+```go
+m, _ := pathrules.NewMatcher([]pathrules.Rule{
+    {Action: pathrules.ActionInclude, Pattern: "/README{,.md,.txt}"},
+}, pathrules.MatcherOptions{
+    DefaultAction:        pathrules.ActionExclude,
+    EnableBraceExpansion: true,
+})
+
+_ = m.Included("README", false)    // true
+_ = m.Included("README.md", false) // true
+```
+
+Empty alternatives (`{,.md}`) and multiple groups (cartesian product,
+`{foo,bar}-{one,two}`) are supported; groups may contain `/`.
+Expansion is capped at 256 alternatives per pattern.
+
+The grammar is strict: once enabled, every `{` must open a complete,
+non-nested group with at least two comma-separated alternatives
+that are not all empty
+(so `foo{bar}`, `foo{}`, and `foo{,}` are all compile errors, not literal text).
+A literal `{` then requires `EnableEscaping`.
+
+## Escaping
+
+`\X` (a literal `X`) for pattern metacharacters - `\*`, `\?`, `\[`, `\]`,
+`\{`, `\}`, `\,`, `\\` - is opt-in via `MatcherOptions.EnableEscaping`,
+independent of `EnableBraceExpansion`.
+Disabled by default, so a pattern's backslashes keep being normalized
+to `/` (Windows-style path input), same as when this option does not exist:
+
+```go
+m, _ := pathrules.NewMatcher([]pathrules.Rule{
+    {Action: pathrules.ActionInclude, Pattern: `file\*.txt`},
+}, pathrules.MatcherOptions{
+    DefaultAction:  pathrules.ActionExclude,
+    EnableEscaping: true,
+})
+
+_ = m.Included("file*.txt", false) // true, literal "*"
+_ = m.Included("fileA.txt", false) // false
+```
+
+Once enabled, use `/` for path separators instead of `\`.
 
 ## Recursive Provider
 

@@ -44,6 +44,7 @@ fuzz:
 	$(GO) test -run='^$$' -fuzz='^FuzzParseRules$$' -fuzztime=$(FUZZ_TIME) .
 	$(GO) test -run='^$$' -fuzz='^FuzzNewMatcher$$' -fuzztime=$(FUZZ_TIME) .
 	$(GO) test -run='^$$' -fuzz='^FuzzMatcherDecide$$' -fuzztime=$(FUZZ_TIME) .
+	$(GO) test -run='^$$' -fuzz='^FuzzExpandBraces$$' -fuzztime=$(FUZZ_TIME) .
 	$(GO) test -run='^$$' -fuzz='^FuzzProviderDecide$$' -fuzztime=$(FUZZ_TIME) .
 
 .PHONY: download verify vet tidy tidy-check fmt fmt-check vulncheck lint lint-fix align align-fix

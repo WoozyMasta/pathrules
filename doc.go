@@ -13,6 +13,10 @@ Basic flow:
   - optionally load rules from file (`LoadRulesFile`)
   - customize parsing (`ParseOptions`):
     plain/negated actions, comment and negation prefixes, negation disabling, trailing-space handling
+  - optionally enable brace alternation patterns like "*.{md,txt}"
+    (`MatcherOptions.EnableBraceExpansion`, disabled by default)
+  - optionally enable backslash escaping of pattern metacharacters like "\*"
+    (`MatcherOptions.EnableEscaping`, disabled by default, independent of EnableBraceExpansion)
   - optionally build extension-based include rules (`ParseExtensions`)
   - compile matcher (`NewMatcher`)
   - ask for decision (`Decide` / `Included` / `Excluded`)

@@ -28,8 +28,28 @@ type Rule struct {
 type MatcherOptions struct {
 	// CaseInsensitive enables ASCII case-insensitive matching.
 	CaseInsensitive bool `json:"case_insensitive,omitempty" yaml:"case_insensitive,omitempty"`
+
 	// DefaultAction is applied when no rule matched.
 	DefaultAction Action `json:"default_action,omitempty" yaml:"default_action,omitempty"`
+
+	// EnableBraceExpansion enables gitignore-like brace alternation "{a,b,c}" in patterns,
+	// expanded into a cartesian product of alternatives at compile time.
+	// Disabled by default, so "{" and "}" stay literal for existing rule sets.
+	//
+	// When enabled, "{" always starts an alternation group and must form a complete,
+	// non-nested group with at least two comma-separated alternatives (not all empty);
+	// anything else is ErrInvalidPattern. A literal "{" then requires EnableEscaping.
+	EnableBraceExpansion bool `json:"enable_brace_expansion,omitempty" yaml:"enable_brace_expansion,omitempty"`
+
+	// EnableEscaping enables backslash-escaping of pattern metacharacters:
+	// "\*", "\?", "\[", "\]", "\{", "\}", "\,", "\\",
+	// and generically, "\X" for any other character X.
+	// Independent of EnableBraceExpansion: useful on its own to match a literal "*" or "?" in a filename.
+	//
+	// Disabled by default, so a pattern's backslashes keep being normalized to "/"
+	// (Windows-style path input), same as when this option does not exist.
+	// When enabled, that normalization stops: use "/" for path separators and "\X" for a literal X.
+	EnableEscaping bool `json:"enable_escaping,omitempty" yaml:"enable_escaping,omitempty"`
 }
 
 // MatchResult is a deterministic decision produced by matcher.

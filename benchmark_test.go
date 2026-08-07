@@ -109,6 +109,54 @@ func BenchmarkMatcherDecide(b *testing.B) {
 	}
 }
 
+// BenchmarkNewMatcherBraceExpansion measures the EnableBraceExpansion cost
+// added on top of BenchmarkNewMatcher:
+// same rule shapes, but every rule pattern carries a 3-alternative brace group.
+func BenchmarkNewMatcherBraceExpansion(b *testing.B) {
+	rules := buildBraceRules(benchRuleCount)
+
+	opts := MatcherOptions{
+		DefaultAction:        ActionInclude,
+		EnableBraceExpansion: true,
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m, err := NewMatcher(rules, opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if m == nil {
+			b.Fatal("nil matcher")
+		}
+	}
+}
+
+// BenchmarkMatcherDecideBraceExpansion measures the EnableBraceExpansion
+// cost added on top of BenchmarkMatcherDecide:
+// same rule/path shapes, but every rule pattern carries a 3-alternative brace group.
+func BenchmarkMatcherDecideBraceExpansion(b *testing.B) {
+	rules := buildBraceRules(benchRuleCount)
+
+	m, err := NewMatcher(rules, MatcherOptions{
+		DefaultAction:        ActionInclude,
+		EnableBraceExpansion: true,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	paths := benchmarkPaths(benchPathCount)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchDecisionSink = m.Decide(paths[i%len(paths)], false)
+	}
+}
+
 func BenchmarkNewMatcherRuleStyles(b *testing.B) {
 	const styleRuleCount = 100
 
@@ -481,6 +529,17 @@ func buildRegexpHeavyRules(ruleCount int) []Rule {
 		} else {
 			rules[i] = Rule{Action: ActionInclude, Pattern: fmt.Sprintf("assets/**/group_%03d/*.paa", i%29)}
 		}
+	}
+
+	return rules
+}
+
+// buildBraceRules builds ruleCount rules, each carrying a 3-alternative
+// brace group, for EnableBraceExpansion benchmarks.
+func buildBraceRules(ruleCount int) []Rule {
+	rules := make([]Rule, ruleCount)
+	for i := range rules {
+		rules[i] = Rule{Action: ActionExclude, Pattern: fmt.Sprintf("assets/group_%03d/*.{paa,p3d,rvmat}", i%37)}
 	}
 
 	return rules
